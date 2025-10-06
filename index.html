@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Visor Torre 156</title>
+<title>Visor Torre 156 — solo CO₂ flux</title>
 <style>
   html,body{margin:0;height:100%;background:#111;color:#fff;font-family:system-ui,Segoe UI,Roboto,Arial}
   #c{width:100%;height:100%;display:block}
@@ -21,7 +21,7 @@
     position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.6);
     padding:.8rem 1rem;border:1px solid rgba(255,255,255,.2);border-radius:8px;z-index:10
   }
-  /* Panel de gráficas */
+  /* Panel de gráfica única (CO₂ flux) */
   #charts {
     position: fixed; right: 12px; top: 12px; width: 520px; max-height: calc(100% - 24px);
     background: rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.2); border-radius: 8px;
@@ -52,7 +52,7 @@
 }
 </script>
 
-<!-- Chart.js para las gráficas -->
+<!-- Chart.js para la gráfica -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -65,10 +65,10 @@
   <div style="margin-top:.35rem;opacity:.7;">Se actualiza cada ~10 min</div>
 </div>
 
-<!-- Panel de gráficas con rango -->
+<!-- Panel de gráfica con rango (SOLO CO₂ flux) -->
 <div id="charts">
   <div class="row" style="margin-bottom:.4rem;">
-    <h3 style="flex:1">Gráficas — Torre 156</h3>
+    <h3 style="flex:1">CO₂ flux — Torre 156</h3>
   </div>
   <div class="row">
     <label>Desde:&nbsp;<input type="datetime-local" id="dtFrom"></label>
@@ -88,11 +88,7 @@
   </div>
 
   <div class="grid">
-    <canvas id="chart_H"   height="160"></canvas>
-    <canvas id="chart_LE"  height="160"></canvas>
-    <canvas id="chart_Rn"  height="160"></canvas>
-    <canvas id="chart_CH4" height="160"></canvas>
-    <canvas id="chart_CO2" height="160"></canvas>
+    <canvas id="chart_CO2" height="220"></canvas>
   </div>
 </div>
 
@@ -108,7 +104,7 @@ import { DRACOLoader }    from "three/addons/loaders/DRACOLoader.js";
 const PROXY_URL  = "https://flux-proxy.daalbumu.workers.dev/series"; // tu Worker
 const GLB_URL    = "./cataruben2.glb";                                // tu modelo
 const STATION_ID = 156;                                              // estación solicitada
-const VARIABLES  = ["H","LE","Rn_1_1_1","ch4_flux","co2_flux"];
+const VARIABLES  = ["H","LE","Rn_1_1_1","ch4_flux","co2_flux"]; // HUD conserva todo
 
 /* --- Canvas + HUD --- */
 const canvas  = document.getElementById('c');
@@ -116,8 +112,9 @@ const tooltip = document.getElementById('tooltip');
 const loading = document.getElementById('loading');
 const hudWrap = document.getElementById('station');
 const hud     = hudWrap.querySelector('code');
+const chartsPanel = document.getElementById('charts');
 
-/* --- (opcional) etiquetas por nombre si no vienen en userData.label --- */
+/* --- etiquetas fallback --- */
 const LABELS = {
   "Mesh_0.011": "Machín petrolero",
   "Mesh_0.002": "1 Cámaras automatizadas LI-COR 8200",
@@ -202,12 +199,17 @@ loader.load(
 /* --- Tooltips --- */
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(-1,-1);
+let overCharts = false;
+
 window.addEventListener('pointermove', e=>{
   const r = renderer.domElement.getBoundingClientRect();
   mouse.x = ((e.clientX - r.left) / r.width ) * 2 - 1;
   mouse.y = -((e.clientY - r.top ) / r.height) * 2 + 1;
   tooltip.style.left = `${e.clientX}px`; tooltip.style.top = `${e.clientY}px`;
 });
+chartsPanel.addEventListener('pointerenter', ()=>{ overCharts=true; tooltip.style.display='none'; });
+chartsPanel.addEventListener('pointerleave', ()=>{ overCharts=false; });
+
 function getLabelFrom(object){
   let o = object;
   while (o) { const ud = o.userData||{}; if (ud.label && String(ud.label).trim()!=="") return String(ud.label); o=o.parent; }
@@ -215,6 +217,7 @@ function getLabelFrom(object){
   return CANON_LABELS[c] || object.name;
 }
 function updateTooltip(){
+  if (overCharts) { tooltip.style.display='none'; return; }
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObjects(scene.children, true);
   const hit = hits.find(h => h.object?.isMesh);
@@ -241,7 +244,7 @@ function animate(now){
 }
 requestAnimationFrame(animate);
 
-/* ===== Datos de FluxSuite (HUD + Gráficas) ===== */
+/* ===== Datos de FluxSuite (HUD + Gráfica) ===== */
 const lastPoint = (list)=>{ if(!Array.isArray(list)) return null; for(let i=list.length-1;i>=0;i--){const [ts,v]=list[i]; if(v!=null) return {ts,v};} return null; };
 const toEpochS = (dtLocal)=> Math.floor(new Date(dtLocal).getTime()/1000);
 const fmtTs = (ms)=> new Date(ms).toLocaleString([], {hour12:false, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
@@ -250,13 +253,13 @@ const fmtTs = (ms)=> new Date(ms).toLocaleString([], {hour12:false, month:'2-dig
 async function fetchStationWindow(stationId, startS, endS){
   const qs = new URLSearchParams({
     stationId:String(stationId),
-    field: VARIABLES.join(","),
+    field: VARIABLES.join(','),
     startTime:String(startS),
     endTime:String(endS),
-    format:"highcharts"
+    format:'highcharts'
   });
-  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:"no-store" });
-  if(!r.ok) throw new Error("Proxy error "+r.status);
+  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:'no-store' });
+  if(!r.ok) throw new Error('Proxy error '+r.status);
   return r.json();
 }
 async function refreshDataHUD(){
@@ -268,16 +271,16 @@ async function refreshDataHUD(){
       const serie = (d.series?.[k]?.[0]?.data) || [];
       const p = lastPoint(serie);
       return `${k}: ${p ? Number(p.v).toFixed(2) : 'N/A'}`;
-    }).join(" · ");
+    }).join(' · ');
     hudWrap.firstChild.textContent = `Torre ${STATION_ID}: `;
     hud.textContent = txt;
   }catch(e){ console.error(e); }
 }
 refreshDataHUD(); setInterval(refreshDataHUD, 600_000); // 10 min
 
-/* --- CHARTS --- */
-const CHART_FIELDS = ["H","LE","Rn_1_1_1","ch4_flux","co2_flux"];
-const CHART_CANVAS = { H:"chart_H", LE:"chart_LE", Rn_1_1_1:"chart_Rn", ch4_flux:"chart_CH4", co2_flux:"chart_CO2" };
+/* --- Gráfica ÚNICA: co2_flux --- */
+const CHART_FIELDS = ['co2_flux'];
+const CHART_CANVAS = { co2_flux:'chart_CO2' };
 const charts = {};
 function upsertChart(canvasId, label, labels, values){
   const ctx = document.getElementById(canvasId); if(!ctx) return;
@@ -293,17 +296,17 @@ function upsertChart(canvasId, label, labels, values){
       plugins:{ legend:{display:false}, tooltip:{mode:'index', intersect:false} },
       scales:{
         x:{ ticks:{ color:'#ddd', maxTicksLimit:6 }, grid:{ color:'rgba(255,255,255,.08)' } },
-        y:{ ticks:{ color:'#ddd' }, grid:{ color:'rgba(255,255,255,.08)' } }
+        y:{ ticks:{ color:'#ddd' }, grid:{ color:'rgba(255,255,255,.08)' }, title:{display:true, text:'µmol m⁻² s⁻¹'} }
       }
     }
   });
 }
 async function fetchSeriesForCharts(stationId, startS, endS){
   const qs = new URLSearchParams({
-    stationId:String(stationId), field:CHART_FIELDS.join(","), startTime:String(startS), endTime:String(endS), format:"highcharts"
+    stationId:String(stationId), field:CHART_FIELDS.join(','), startTime:String(startS), endTime:String(endS), format:'highcharts'
   });
-  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:"no-store" });
-  if(!r.ok) throw new Error("Proxy error "+r.status);
+  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:'no-store' });
+  if(!r.ok) throw new Error('Proxy error '+r.status);
   const data = await r.json();
   const out = {};
   for(const f of CHART_FIELDS){
@@ -317,12 +320,8 @@ async function fetchSeriesForCharts(stationId, startS, endS){
 async function drawChartsRange(startS, endS){
   try{
     const series = await fetchSeriesForCharts(STATION_ID, startS, endS);
-    upsertChart(CHART_CANVAS.H, "H (W/m²)", series.H.labels, series.H.values);
-    upsertChart(CHART_CANVAS.LE, "LE (W/m²)", series.LE.labels, series.LE.values);
-    upsertChart(CHART_CANVAS["Rn_1_1_1"], "Rn_1_1_1 (W/m²)", series["Rn_1_1_1"].labels, series["Rn_1_1_1"].values);
-    upsertChart(CHART_CANVAS.ch4_flux, "ch4_flux (µmol/m²s)", series.ch4_flux.labels, series.ch4_flux.values);
-    upsertChart(CHART_CANVAS.co2_flux, "co2_flux (µmol/m²s)", series.co2_flux.labels, series.co2_flux.values);
-  }catch(e){ console.error("Charts error:", e); }
+    upsertChart(CHART_CANVAS.co2_flux, 'co2_flux (µmol/m²s)', series.co2_flux.labels, series.co2_flux.values);
+  }catch(e){ console.error('Charts error:', e); }
 }
 
 /* --- UI rango de fechas --- */
@@ -332,7 +331,6 @@ const btnApply = document.getElementById('btnApply');
 const btnLast  = document.getElementById('btnLast');
 const selDays  = document.getElementById('selDays');
 
-// set defaults: últimos 10 días
 (function setDefaults(){
   const now = new Date();
   const from = new Date(now.getTime() - 10*24*3600*1000);
@@ -344,14 +342,12 @@ const selDays  = document.getElementById('selDays');
   dtTo.value   = toLocal(now);
 })();
 
-// aplicar rango exacto
 btnApply.addEventListener('click', ()=>{
   if(!dtFrom.value || !dtTo.value) return;
   const startS = toEpochS(dtFrom.value), endS = toEpochS(dtTo.value);
   drawChartsRange(startS, endS);
 });
 
-// usar últimos N días
 btnLast.addEventListener('click', ()=>{
   const days = Number(selDays.value||10);
   const endS = Math.floor(Date.now()/1000);
