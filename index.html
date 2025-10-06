@@ -102,8 +102,16 @@ import { DRACOLoader }    from "three/addons/loaders/DRACOLoader.js";
 
 /* ======== CONFIG ======== */
 const PROXY_URL  = "https://flux-proxy.daalbumu.workers.dev/series"; // tu Worker
-const GLB_URL    = "./cataruben2.glb";                                // tu modelo
+const GLB_CANDIDATES = [
+  './cataruben2.glb',
+  './cataruben.glb',
+  './escena.glb',
+  'cataruben2.glb',
+  'cataruben.glb',
+  'escena.glb'
+]; // se probarán en orden
 const STATION_ID = 156;                                              // estación solicitada
+const VARIABLES  = ["H","LE","Rn_1_1_1","ch4_flux","co2_flux"]; // HUD conserva todo = 156;                                              // estación solicitada
 const VARIABLES  = ["H","LE","Rn_1_1_1","ch4_flux","co2_flux"]; // HUD conserva todo
 
 /* --- Canvas + HUD --- */
@@ -114,6 +122,19 @@ const hudWrap = document.getElementById('station');
 const hud     = hudWrap.querySelector('code');
 const chartsPanel = document.getElementById('charts');
 
+/* --- etiquetas fallback --- */
+const LABELS = {
+  "Mesh_0.011": "Machín petrolero",
+  "Mesh_0.002": "1 Cámaras automatizadas LI-COR 8200",
+  "Mesh_0.003": "2 Cámaras automatizadas LI-COR 8200",
+  "Mesh_0.004": "3 Cámaras automatizadas LI-COR 8200",
+  "Mesh_0.005": "4 Cámaras automatizadas LI-COR 8200",
+  "Mesh_0.018": "1 PALAS",
+  "Mesh_0.059": "2 PALAS",
+  "Mesh_0.001": "torre eddy covarience sur",
+  "Mesh_0.008": "torre eddy covarience norte",
+  "Mesh_0.034": "Llanito 114"
+};
 const canon = s => String(s||"").toLowerCase().replace(/[^\w]/g,"");
 const CANON_LABELS = Object.fromEntries(Object.entries(LABELS).map(([k,v])=>[canon(k),v]));
 
@@ -160,11 +181,40 @@ draco.preload();
 const loader = new GLTFLoader();
 loader.setDRACOLoader(draco);
 
-loader.load(
-  GLB_URL,
-  (gltf)=>{
-    loading.textContent = "Procesando escena…";
-    scene.add(gltf.scene);
+// Intento secuencial de carga del GLB
+async function tryLoadGLB(index=0){
+  if(index >= GLB_CANDIDATES.length){
+    loading.textContent = 'No se pudo cargar el modelo. Verifica el nombre y la ubicación del .glb';
+    return;
+  }
+  const url = GLB_CANDIDATES[index];
+  loading.textContent = `Cargando modelo… (${index+1}/${GLB_CANDIDATES.length}) → ${url}`;
+  loader.load(
+    url,
+    (gltf)=>{
+      loading.textContent = 'Procesando escena…';
+      scene.add(gltf.scene);
+      if (gltf.animations?.length) {
+        const mixer = new THREE.AnimationMixer(gltf.scene);
+        gltf.animations.forEach(clip=>{ const a=mixer.clipAction(clip); a.loop=THREE.LoopRepeat; a.play(); });
+        mixers.push(mixer);
+      }
+      frameObject(gltf.scene, camera, controls, 1.3);
+      loading.style.display = 'none';
+      console.info('GLB cargado desde', url);
+    },
+    (xhr)=>{
+      const t = xhr.total||0;
+      loading.textContent = t ? `Cargando modelo… ${Math.round((xhr.loaded/t)*100)}%` : `Cargando modelo… (${url})`;
+    },
+    (err)=>{
+      console.warn('Fallo al cargar', url, err);
+      // Intentar el siguiente candidato
+      tryLoadGLB(index+1);
+    }
+  );
+}
+tryLoadGLB();
     if (gltf.animations?.length) {
       const mixer = new THREE.AnimationMixer(gltf.scene);
       gltf.animations.forEach(clip=>{ const a=mixer.clipAction(clip); a.loop=THREE.LoopRepeat; a.play(); });
