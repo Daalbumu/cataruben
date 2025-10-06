@@ -33,6 +33,10 @@
   #charts button{cursor:pointer;background:#2a2a2a;color:#fff;border:1px solid rgba(255,255,255,.2);
     padding:.35rem .6rem;border-radius:6px;font-size:12px}
   #charts canvas{background:rgba(255,255,255,.04);border-radius:6px;margin-top:.5rem}
+  /* División 50/50 entre gráfica e imagen */
+  #charts .split{display:flex;flex-direction:column;gap:8px;height:calc(100% - 90px);}
+  #charts .split canvas, #charts .split img{flex:1 1 50%;min-height:0;}
+  #charts .split img{width:100%;object-fit:cover;border-radius:6px;background:#0b0b0b;}
 </style>
 
 <!-- three.js import map -->
@@ -56,7 +60,7 @@
 </div>
 
 <!-- Panel: SOLO co2_flux -->
-<div id="charts">
+<div id="charts" style="height:92vh">
   <div class="row" style="margin-bottom:.4rem;">
     <h3 style="flex:1">CO₂ flux — Torre 156</h3>
   </div>
@@ -76,7 +80,10 @@
     </label>
     <button id="btnLast">Usar últimos N días</button>
   </div>
-  <canvas id="chart_CO2" height="220"></canvas>
+  <div class="split">
+    <canvas id="chart_CO2"></canvas>
+    <img id="photo156" src="./torre156.jpeg" alt="Torre 156" />
+  </div>
 </div>
 
 <div id="loading">Cargando modelo…</div>
@@ -263,7 +270,7 @@ function upsertCO2(labels, values){
   co2Chart = new Chart(ctx, {
     type:'line',
     data:{ labels, datasets:[{ label:'co2_flux (µmol/m²s)', data:values, fill:false, tension:0.2, pointRadius:0, borderWidth:2 }] },
-    options:{ animation:false, responsive:true,
+    options:{ animation:false, responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false}, tooltip:{mode:'index', intersect:false} },
       scales:{ x:{ ticks:{ color:'#ddd', maxTicksLimit:6 }, grid:{ color:'rgba(255,255,255,.08)' } },
               y:{ ticks:{ color:'#ddd' }, grid:{ color:'rgba(255,255,255,.08)' }, title:{display:true,text:'µmol m⁻² s⁻¹'} } }
