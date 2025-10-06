@@ -108,7 +108,7 @@ const hudWrap = document.getElementById('station');
 const hud     = hudWrap.querySelector('code');
 const chartsPanel = document.getElementById('charts');
 
-// Etiquetas: se usan solo las definidas dentro del GLB (userData.label)
+// Etiquetas: solo las definidas dentro del GLB (userData.label)
 
 /* --- Three.js base --- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
@@ -179,6 +179,7 @@ loader.load(
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(-1,-1);
 let overCharts = false;
+
 window.addEventListener('pointermove', e=>{
   const r = renderer.domElement.getBoundingClientRect();
   mouse.x = ((e.clientX - r.left)/r.width)*2 - 1;
@@ -187,6 +188,7 @@ window.addEventListener('pointermove', e=>{
 });
 chartsPanel.addEventListener('pointerenter', ()=>{ overCharts=true; tooltip.style.display='none'; });
 chartsPanel.addEventListener('pointerleave', ()=>{ overCharts=false; });
+
 function getLabelFrom(object){
   let o = object;
   while (o) {
@@ -195,9 +197,8 @@ function getLabelFrom(object){
     o = o.parent;
   }
   return object.name || '';
-}; if(ud.label && String(ud.label).trim()!=='') return String(ud.label); o=o.parent; }
-  const c = canon(object.name); return CANON_LABELS[c] || object.name;
 }
+
 function updateTooltip(){
   if(overCharts){ tooltip.style.display='none'; return; }
   raycaster.setFromCamera(mouse,camera);
