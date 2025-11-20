@@ -232,12 +232,23 @@ const lastPoint = (list)=>{ if(!Array.isArray(list)) return null; for(let i=list
 const toEpochS = (dtLocal)=> Math.floor(new Date(dtLocal).getTime()/1000);
 const fmtTs = (ms)=> new Date(ms).toLocaleString([], {hour12:false, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
 
+/* === FETCH CON CREDENCIALES INCLUIDAS === */
 async function fetchStationWindow(stationId, startS, endS){
-  const qs = new URLSearchParams({ stationId:String(stationId), field: VARIABLES.join(','), startTime:String(startS), endTime:String(endS), format:'highcharts' });
-  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:'no-store' });
+  const qs = new URLSearchParams({
+    stationId:String(stationId),
+    field: VARIABLES.join(','),
+    startTime:String(startS),
+    endTime:String(endS),
+    format:'highcharts'
+  });
+  const r = await fetch(`${PROXY_URL}?${qs}`, {
+    cache:'no-store',
+    credentials:'include'   // 👈 enviar cookies al worker
+  });
   if(!r.ok) throw new Error('Proxy error '+r.status);
   return r.json();
 }
+
 async function refreshDataHUD(){
   try{
     const nowS = Math.floor(Date.now()/1000);
@@ -259,30 +270,76 @@ const CHART_CANVAS = 'chart_CO2';
 let co2Chart;
 function upsertCO2(labels, values){
   const ctx = document.getElementById(CHART_CANVAS);
-  if(co2Chart){ co2Chart.data.labels = labels; co2Chart.data.datasets[0].data = values; co2Chart.update(); return; }
+  if(co2Chart){
+    co2Chart.data.labels = labels;
+    co2Chart.data.datasets[0].data = values;
+    co2Chart.update();
+    return;
+  }
   co2Chart = new Chart(ctx, {
     type:'line',
-    data:{ labels, datasets:[{ label:'co2_flux (µmol/m²s)', data:values, fill:false, tension:0.2, pointRadius:0, borderWidth:2 }] },
-    options:{ animation:false, responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{display:false}, tooltip:{mode:'index', intersect:false} },
-      scales:{ x:{ ticks:{ color:'#ddd', maxTicksLimit:6 }, grid:{ color:'rgba(255,255,255,.08)' } },
-              y:{ ticks:{ color:'#ddd' }, grid:{ color:'rgba(255,255,255,.08)' }, title:{display:true,text:'µmol m⁻² s⁻¹'} } }
+    data:{ labels, datasets:[{
+      label:'co2_flux (µmol/m²s)',
+      data:values,
+      fill:false,
+      tension:0.2,
+      pointRadius:0,
+      borderWidth:2
+    }]},
+    options:{
+      animation:false,
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{mode:'index', intersect:false}
+      },
+      scales:{
+        x:{
+          ticks:{ color:'#ddd', maxTicksLimit:6 },
+          grid:{ color:'rgba(255,255,255,.08)' }
+        },
+        y:{
+          ticks:{ color:'#ddd' },
+          grid:{ color:'rgba(255,255,255,.08)' },
+          title:{display:true,text:'µmol m⁻² s⁻¹'}
+        }
+      }
     }
   });
 }
+
 async function fetchCO2(stationId, startS, endS){
-  const qs = new URLSearchParams({ stationId:String(stationId), field:'co2_flux', startTime:String(startS), endTime:String(endS), format:'highcharts' });
-  const r = await fetch(`${PROXY_URL}?${qs}`, { cache:'no-store' });
+  const qs = new URLSearchParams({
+    stationId:String(stationId),
+    field:'co2_flux',
+    startTime:String(startS),
+    endTime:String(endS),
+    format:'highcharts'
+  });
+  const r = await fetch(`${PROXY_URL}?${qs}`, {
+    cache:'no-store',
+    credentials:'include'   // 👈 igual aquí
+  });
   if(!r.ok) throw new Error('Proxy error '+r.status);
   const data = await r.json();
   const serie = data?.series?.co2_flux?.[0]?.data || [];
   const labels=[], values=[];
-  for(const [ts,v] of serie){ if(v==null) continue; labels.push(fmtTs(ts)); values.push(v); }
+  for(const [ts,v] of serie){
+    if(v==null) continue;
+    labels.push(fmtTs(ts));
+    values.push(v);
+  }
   return {labels, values};
 }
+
 async function drawCO2(startS, endS){
-  try{ const s = await fetchCO2(STATION_ID, startS, endS); upsertCO2(s.labels, s.values); }
-  catch(e){ console.error('CO2 chart error:', e); }
+  try{
+    const s = await fetchCO2(STATION_ID, startS, endS);
+    upsertCO2(s.labels, s.values);
+  }catch(e){
+    console.error('CO2 chart error:', e);
+  }
 }
 
 // UI rango de fechas
@@ -291,15 +348,38 @@ const dtTo   = document.getElementById('dtTo');
 const btnApply = document.getElementById('btnApply');
 const btnLast  = document.getElementById('btnLast');
 const selDays  = document.getElementById('selDays');
+
 (function setDefaults(){
   const now = new Date();
   const from = new Date(now.getTime()-10*24*3600*1000);
-  const toLocal = d=>{ const pad=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-  dtFrom.value = toLocal(from); dtTo.value = toLocal(now);
+  const toLocal = d=>{
+    const pad=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  dtFrom.value = toLocal(from);
+  dtTo.value = toLocal(now);
 })();
-btnApply.addEventListener('click', ()=>{ if(!dtFrom.value||!dtTo.value) return; const startS=toEpochS(dtFrom.value), endS=toEpochS(dtTo.value); drawCO2(startS,endS); });
-btnLast.addEventListener('click', ()=>{ const days=Number(selDays.value||10); const endS=Math.floor(Date.now()/1000); const startS=endS-days*24*3600; drawCO2(startS,endS); });
-(function initial(){ const endS=Math.floor(Date.now()/1000); const startS=endS-10*24*3600; drawCO2(startS,endS); })();
+
+btnApply.addEventListener('click', ()=>{
+  if(!dtFrom.value||!dtTo.value) return;
+  const startS=toEpochS(dtFrom.value);
+  const endS=toEpochS(dtTo.value);
+  drawCO2(startS,endS);
+});
+
+btnLast.addEventListener('click', ()=>{
+  const days=Number(selDays.value||10);
+  const endS=Math.floor(Date.now()/1000);
+  const startS=endS-days*24*3600;
+  drawCO2(startS,endS);
+});
+
+// carga inicial: últimos 10 días
+(function initial(){
+  const endS=Math.floor(Date.now()/1000);
+  const startS=endS-10*24*3600;
+  drawCO2(startS,endS);
+})();
 </script>
 </body>
 </html>
