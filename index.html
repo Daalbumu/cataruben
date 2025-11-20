@@ -87,6 +87,13 @@
 </div>
 
 <div id="loading">Cargando modelo…</div>
+<!-- Caja para mostrar errores de datos / proxy -->
+<div id="error" style="
+  position:fixed;left:50%;bottom:12px;transform:translateX(-50%);
+  background:rgba(160,0,0,.85);color:#fff;padding:.4rem .7rem;
+  border-radius:6px;font-size:13px;border:1px solid rgba(255,255,255,.3);
+  max-width:90vw;display:none;z-index:20;">
+</div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -98,17 +105,23 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 const PROXY_URL  = 'https://flux-proxy.daalbumu.workers.dev/series';
 const GLB_URL    = './cataruben2.glb'; // ajusta si tu archivo tiene otro nombre
 const STATION_ID = 156;
-const VARIABLES  = ['H','LE','Rn_1_1_1','ch4_flux','co2_flux']; // HUD mantiene todas
+const VARIABLES  = ['H','LE','Rn_1_1_1','ch4_flux','co2_flux']; // HUD muestra todas
 
-/* --- Canvas + HUD --- */
-const canvas  = document.getElementById('c');
-const tooltip = document.getElementById('tooltip');
-const loading = document.getElementById('loading');
-const hudWrap = document.getElementById('station');
-const hud     = hudWrap.querySelector('code');
+/* --- Canvas + HUD + Error --- */
+const canvas      = document.getElementById('c');
+const tooltip     = document.getElementById('tooltip');
+const loading     = document.getElementById('loading');
+const hudWrap     = document.getElementById('station');
+const hud         = hudWrap.querySelector('code');
 const chartsPanel = document.getElementById('charts');
+const errBox      = document.getElementById('error');
 
-// Etiquetas: solo las definidas dentro del GLB (userData.label)
+function showError(msg){
+  console.error(msg);
+  if(!errBox) return;
+  errBox.textContent = String(msg);
+  errBox.style.display = 'block';
+}
 
 /* --- Three.js base --- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
@@ -126,7 +139,9 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
 scene.add(new THREE.HemisphereLight(0xffffff,0x303030,0.9));
-const dlight = new THREE.DirectionalLight(0xffffff,1.2); dlight.position.set(20,30,20); scene.add(dlight);
+const dlight = new THREE.DirectionalLight(0xffffff,1.2);
+dlight.position.set(20,30,20);
+scene.add(dlight);
 
 function frameObject(object, camera, controls, padding=1.2){
   const box = new THREE.Box3().setFromObject(object);
@@ -136,11 +151,14 @@ function frameObject(object, camera, controls, padding=1.2){
   const fitH = maxSize/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov*0.5)));
   const fitW = fitH/camera.aspect;
   const distance = padding*Math.max(fitH,fitW);
-  const dir = new THREE.Vector3().subVectors(camera.position,controls.target).normalize().multiplyScalar(distance);
+  const dir = new THREE.Vector3().subVectors(camera.position,controls.target)
+                                 .normalize().multiplyScalar(distance);
   controls.target.copy(center);
   camera.position.copy(center).add(dir);
-  camera.near = distance/100; camera.far = distance*100;
-  camera.updateProjectionMatrix(); controls.update();
+  camera.near = distance/100;
+  camera.far  = distance*100;
+  camera.updateProjectionMatrix();
+  controls.update();
 }
 
 /* --- GLB + Draco --- */
@@ -159,7 +177,11 @@ loader.load(
     scene.add(gltf.scene);
     if (gltf.animations?.length){
       const mixer = new THREE.AnimationMixer(gltf.scene);
-      gltf.animations.forEach(clip=>{ const a=mixer.clipAction(clip); a.loop=THREE.LoopRepeat; a.play(); });
+      gltf.animations.forEach(clip=>{
+        const a = mixer.clipAction(clip);
+        a.loop = THREE.LoopRepeat;
+        a.play();
+      });
       mixers.push(mixer);
     }
     frameObject(gltf.scene,camera,controls,1.3);
@@ -167,11 +189,14 @@ loader.load(
   },
   (xhr)=>{
     const t = xhr.total||0;
-    loading.textContent = t ? `Cargando modelo… ${Math.round((xhr.loaded/t)*100)}%` : 'Cargando modelo…';
+    loading.textContent = t
+      ? `Cargando modelo… ${Math.round((xhr.loaded/t)*100)}%`
+      : 'Cargando modelo…';
   },
   (err)=>{
     console.error('Error GLB:', err);
     loading.textContent = 'Error cargando el modelo. Revisa la consola (F12).';
+    showError('Error cargando el modelo 3D (ver consola).');
   }
 );
 
@@ -184,10 +209,16 @@ window.addEventListener('pointermove', e=>{
   const r = renderer.domElement.getBoundingClientRect();
   mouse.x = ((e.clientX - r.left)/r.width)*2 - 1;
   mouse.y = -((e.clientY - r.top)/r.height)*2 + 1;
-  tooltip.style.left = `${e.clientX}px`; tooltip.style.top = `${e.clientY}px`;
+  tooltip.style.left = `${e.clientX}px`;
+  tooltip.style.top  = `${e.clientY}px`;
 });
-chartsPanel.addEventListener('pointerenter', ()=>{ overCharts=true; tooltip.style.display='none'; });
-chartsPanel.addEventListener('pointerleave', ()=>{ overCharts=false; });
+chartsPanel.addEventListener('pointerenter', ()=>{
+  overCharts=true;
+  tooltip.style.display='none';
+});
+chartsPanel.addEventListener('pointerleave', ()=>{
+  overCharts=false;
+});
 
 function getLabelFrom(object){
   let o = object;
@@ -200,7 +231,10 @@ function getLabelFrom(object){
 }
 
 function updateTooltip(){
-  if(overCharts){ tooltip.style.display='none'; return; }
+  if(overCharts){
+    tooltip.style.display='none';
+    return;
+  }
   raycaster.setFromCamera(mouse,camera);
   const hits = raycaster.intersectObjects(scene.children,true);
   const hit = hits.find(h=>h.object?.isMesh);
@@ -213,13 +247,15 @@ function resize(){
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if(canvas.width!==w || canvas.height!==h){
     renderer.setSize(w,h,false);
-    camera.aspect = w/h; camera.updateProjectionMatrix();
+    camera.aspect = w/h;
+    camera.updateProjectionMatrix();
   }
 }
 let last = performance.now();
 function animate(now){
   const dt = (now-last)/1000; last = now;
-  resize(); controls.update();
+  resize();
+  controls.update();
   mixers.forEach(m=>m.update(dt));
   updateTooltip();
   renderer.render(scene,camera);
@@ -228,11 +264,21 @@ function animate(now){
 requestAnimationFrame(animate);
 
 /* ===== Datos (HUD + Gráfica única) ===== */
-const lastPoint = (list)=>{ if(!Array.isArray(list)) return null; for(let i=list.length-1;i>=0;i--){ const [ts,v]=list[i]; if(v!=null) return {ts,v}; } return null; };
+const lastPoint = (list)=>{
+  if(!Array.isArray(list)) return null;
+  for(let i=list.length-1;i>=0;i--){
+    const [ts,v] = list[i];
+    if(v!=null) return {ts,v};
+  }
+  return null;
+};
 const toEpochS = (dtLocal)=> Math.floor(new Date(dtLocal).getTime()/1000);
-const fmtTs = (ms)=> new Date(ms).toLocaleString([], {hour12:false, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+const fmtTs = (ms)=> new Date(ms).toLocaleString([], {
+  hour12:false, month:'2-digit', day:'2-digit',
+  hour:'2-digit', minute:'2-digit'
+});
 
-/* === FETCH CON CREDENCIALES INCLUIDAS === */
+/* === FETCH CON VERIFICACIÓN Y CREDENCIALES === */
 async function fetchStationWindow(stationId, startS, endS){
   const qs = new URLSearchParams({
     stationId:String(stationId),
@@ -243,17 +289,25 @@ async function fetchStationWindow(stationId, startS, endS){
   });
   const r = await fetch(`${PROXY_URL}?${qs}`, {
     cache:'no-store',
-    credentials:'include'   // 👈 enviar cookies al worker
+    credentials:'include'   // enviar cookies si el worker las usa
   });
-  if(!r.ok) throw new Error('Proxy error '+r.status);
-  return r.json();
+  if(!r.ok){
+    throw new Error(`Proxy HUD error ${r.status} ${r.statusText}`);
+  }
+  const data = await r.json();
+  console.log('HUD raw data:', data);
+  return data;
 }
 
 async function refreshDataHUD(){
   try{
-    const nowS = Math.floor(Date.now()/1000);
+    const nowS   = Math.floor(Date.now()/1000);
     const startS = nowS - 8*24*3600;
-    const d = await fetchStationWindow(STATION_ID, startS, nowS);
+    const d      = await fetchStationWindow(STATION_ID, startS, nowS);
+    if(!d.series){
+      showError('HUD: respuesta sin series desde el proxy.');
+      return;
+    }
     const txt = VARIABLES.map(k=>{
       const serie = (d.series?.[k]?.[0]?.data) || [];
       const p = lastPoint(serie);
@@ -261,9 +315,12 @@ async function refreshDataHUD(){
     }).join(' · ');
     hudWrap.firstChild.textContent = `Torre ${STATION_ID}: `;
     hud.textContent = txt;
-  }catch(e){ console.error(e); }
+  }catch(e){
+    showError('HUD: ' + e.message);
+  }
 }
-refreshDataHUD(); setInterval(refreshDataHUD, 600000);
+refreshDataHUD();
+setInterval(refreshDataHUD, 600000);
 
 /* --- Única gráfica: co2_flux --- */
 const CHART_CANVAS = 'chart_CO2';
@@ -278,14 +335,17 @@ function upsertCO2(labels, values){
   }
   co2Chart = new Chart(ctx, {
     type:'line',
-    data:{ labels, datasets:[{
-      label:'co2_flux (µmol/m²s)',
-      data:values,
-      fill:false,
-      tension:0.2,
-      pointRadius:0,
-      borderWidth:2
-    }]},
+    data:{
+      labels,
+      datasets:[{
+        label:'co2_flux (µmol/m²s)',
+        data:values,
+        fill:false,
+        tension:0.2,
+        pointRadius:0,
+        borderWidth:2
+      }]
+    },
     options:{
       animation:false,
       responsive:true,
@@ -319,10 +379,13 @@ async function fetchCO2(stationId, startS, endS){
   });
   const r = await fetch(`${PROXY_URL}?${qs}`, {
     cache:'no-store',
-    credentials:'include'   // 👈 igual aquí
+    credentials:'include'   // idem: enviar cookies si aplica
   });
-  if(!r.ok) throw new Error('Proxy error '+r.status);
+  if(!r.ok){
+    throw new Error(`Proxy CO₂ error ${r.status} ${r.statusText}`);
+  }
   const data = await r.json();
+  console.log('CO2 raw data:', data);
   const serie = data?.series?.co2_flux?.[0]?.data || [];
   const labels=[], values=[];
   for(const [ts,v] of serie){
@@ -337,47 +400,50 @@ async function drawCO2(startS, endS){
   try{
     const s = await fetchCO2(STATION_ID, startS, endS);
     upsertCO2(s.labels, s.values);
+    if (!s.values.length){
+      showError('CO₂: la serie llegó vacía (0 puntos). Revisa stationId/field/tiempos.');
+    }
   }catch(e){
-    console.error('CO2 chart error:', e);
+    showError('CO₂ chart error: ' + e.message);
   }
 }
 
 // UI rango de fechas
-const dtFrom = document.getElementById('dtFrom');
-const dtTo   = document.getElementById('dtTo');
-const btnApply = document.getElementById('btnApply');
-const btnLast  = document.getElementById('btnLast');
-const selDays  = document.getElementById('selDays');
+const dtFrom  = document.getElementById('dtFrom');
+const dtTo    = document.getElementById('dtTo');
+const btnApply= document.getElementById('btnApply');
+const btnLast = document.getElementById('btnLast');
+const selDays = document.getElementById('selDays');
 
 (function setDefaults(){
-  const now = new Date();
+  const now  = new Date();
   const from = new Date(now.getTime()-10*24*3600*1000);
   const toLocal = d=>{
     const pad=n=>String(n).padStart(2,'0');
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
   dtFrom.value = toLocal(from);
-  dtTo.value = toLocal(now);
+  dtTo.value   = toLocal(now);
 })();
 
 btnApply.addEventListener('click', ()=>{
   if(!dtFrom.value||!dtTo.value) return;
-  const startS=toEpochS(dtFrom.value);
-  const endS=toEpochS(dtTo.value);
+  const startS = toEpochS(dtFrom.value);
+  const endS   = toEpochS(dtTo.value);
   drawCO2(startS,endS);
 });
 
 btnLast.addEventListener('click', ()=>{
-  const days=Number(selDays.value||10);
-  const endS=Math.floor(Date.now()/1000);
-  const startS=endS-days*24*3600;
+  const days  = Number(selDays.value||10);
+  const endS  = Math.floor(Date.now()/1000);
+  const startS= endS-days*24*3600;
   drawCO2(startS,endS);
 });
 
 // carga inicial: últimos 10 días
 (function initial(){
-  const endS=Math.floor(Date.now()/1000);
-  const startS=endS-10*24*3600;
+  const endS  = Math.floor(Date.now()/1000);
+  const startS= endS-10*24*3600;
   drawCO2(startS,endS);
 })();
 </script>
